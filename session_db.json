@@ -4,8 +4,8 @@
       "id": "1884297416:1884297416",
       "data": {
         "__scenes": {},
-        "ticketStatus": "justCreate",
-        "path": "tickets"
+        "path": "tickets",
+        "ticketStatus": "create"
       }
     },
     {

@@ -14,7 +14,7 @@ export class TicketsService {
       private channelModel: typeof Channel
    ) {}
 
-   async updateTicketData({ senderId, ticketChatId }) {
+   async updateTicketData(senderId, ticketChatId) {
       const openedTicket = await this.ticketModel.findOne({
          where: {
             [Op.and]: [
@@ -37,9 +37,9 @@ export class TicketsService {
       })
    }
 
-   async findByChatId(charId) {
+   async findByThreadId(threadId) {
       return this.ticketModel.findOne({
-         where: { ticketChatId: charId }
+         where: { ticketChatId: threadId }
       })
    }
 
