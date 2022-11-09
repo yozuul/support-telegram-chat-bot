@@ -14,21 +14,44 @@ export class TicketsService {
       private channelModel: typeof Channel
    ) {}
 
-   async updateTicketData(senderId, ticketChatId) {
-      const openedTicket = await this.ticketModel.findOne({
+   async linkThreadByUserId(senderId, messageId) {
+      const notLinkedTicket = await this.ticketModel.findOne({
          where: {
             [Op.and]: [
               { senderId: senderId },
               { closed: false },
-              { ticketChatId: null },
+              { threadId: null },
             ]
          }
       })
-      if(!openedTicket.ticketChatId) {
-         openedTicket.ticketChatId = ticketChatId
-         await openedTicket.save()
+      if(notLinkedTicket) {
+         notLinkedTicket.threadId = messageId
+         await notLinkedTicket.save()
       }
-      return openedTicket
+      return notLinkedTicket
+   }
+   async linkThreadByPostText(postType, messageText, captionText, senderName, messageId) {
+      console.log(postType, messageText, captionText, senderName, messageId)
+      const notLinkedTicket = await this.ticketModel.findOne({
+         where: {
+            [Op.and]: [
+              { startedPostType: postType },
+              { startedText: messageText },
+              { closed: false },
+              { threadId: null },
+            ]
+         }
+      })
+      console.log('notLinkedTicket', notLinkedTicket?.dataValues)
+      if(notLinkedTicket) {
+         if((notLinkedTicket.startedText === messageText) &&
+            (notLinkedTicket.startedPostType === postType) &&
+            (notLinkedTicket.startedCaption === captionText)) {
+               notLinkedTicket.threadId = messageId
+               await notLinkedTicket.save()
+         }
+      }
+      return notLinkedTicket
    }
 
    async findBySenderId(senderId) {
@@ -39,7 +62,7 @@ export class TicketsService {
 
    async findByThreadId(threadId) {
       return this.ticketModel.findOne({
-         where: { ticketChatId: threadId }
+         where: { threadId: threadId }
       })
    }
 
@@ -54,14 +77,13 @@ export class TicketsService {
       })
    }
 
-   async create(senderId, ticketChatId) {
-      return this.ticketModel.create({
-         senderId: senderId, ticketChatId: ticketChatId
-      })
+   async create(data) {
+      return this.ticketModel.create(data)
    }
-   async deleteByThread(ticketChatId) {
+
+   async deleteByThread(threadId) {
       return this.ticketModel.destroy({
-         where: { ticketChatId: ticketChatId }
+         where: { threadId: threadId }
       })
    }
 
@@ -110,7 +132,7 @@ export class TicketsService {
       }
    }
 
-   async deleteChannel(chatId, chatType) {
+   async deleteChannel(chatId) {
       try {
          console.log('УДАЛЯЕМ')
          return this.channelModel.destroy({

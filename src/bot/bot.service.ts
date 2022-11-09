@@ -9,12 +9,25 @@ export class BotService {
 
    // Проверяем, есть ли открытый тиккет для данного пользователя
    async checkOpenedTicket(message, bot) {
-      const senderId = message.from.id
-      const openTicket = await this.ticketService.checkOpened(senderId)
+      const openTicket = await this.ticketService.checkOpened(message.from.id)
       const chat = await this.ticketService.getChannelId()
+      console.log('checkOpenedTicket', openTicket)
       if(!openTicket) {
-         await this.ticketService.create(senderId, null)
+         // Сначала создаём запись о тиккете без ветки
+         await this.ticketService.create({
+            senderId: message.from.id,
+            userFirstName: message.from.first_name,
+            userLastName: message.from.last_name,
+            startedText: message.text || null,
+            startedPostType: message.document ? 'doc' : 'text',
+            startedCaption: message.caption || null,
+            threadId: null
+         })
          try {
+            console.log('chat', chat)
+            console.log('chat', chat)
+            console.log('chat', chat)
+            // Потом постим запись в канал, перехватываем ID ветки, и обновляем запись
             await bot.telegram.forwardMessage(
                chat.chatId, message.from.id, message.message_id
             )
@@ -26,54 +39,49 @@ export class BotService {
    }
 
    async checkChannelStatus(ctx, bot) {
-      const query = ctx.update['my_chat_member']
-      const botOwner = this.botOwner(query.from)
-      const senderId = query.from.id         // ID отправителя запроса
-      const chatId = query.chat.id          // ID чата (канала / группы)
-      const chatType = query.chat.type       // Тип чата (канал / группа)
-      const { status } = query.new_chat_member
-
-      if(botOwner) { // Если уведомление пришло от владельца бота
-         // Если бота заинвайтили, пробуем добавить
-         if((status === 'administrator') || (status === 'member')) {
-            if(chatType === 'group') { // Если не супергруппа
-               console.log('Указанная группа не привязана к каналу, поэтому не может быть добавлена', query)
-               await this.leaveChannel(ctx, chatId, chatType)
-               const text = 'Указанная группа не привязана к каналу, поэтому не может быть добавлена'
-               bot.telegram.sendMessage(senderId, text)
-            }
-            const added = await this.ticketService.checkAndAddChannel(chatId, chatType)
-            // console.log('added', added)
-            if(added?.error) {
-               console.log('1111111111111', query)
-               await this.leaveChannel(ctx, chatId, chatType)
-               // bot.telegram.sendMessage(senderId, added.message)
-            }
-         }
-         // Если бота кикнули, удаляем канал из БД
-         if((status === 'left') || (status === 'kicked')) {
-            const del = await this.ticketService.deleteChannel(chatId, chatType)
-            console.log('del', del)
-         }
-      } else { // Если уведомление не от владельца бота или от др бота
-         // Если инвайт, пробуем добавить
-         if((status === 'administrator') || (status === 'member')) {
-            const added = await this.ticketService.checkAndAddChannel(chatId, chatType)
-            if(added?.error) {
-               console.log('22222222222', query)
-               await this.leaveChannel(ctx, chatId, chatType)
-            }
-         }
+      const message = ctx.update['my_chat_member']
+      const status = message.new_chat_member.status
+      const chat = message.chat
+      // Добавил / удалил пользователь. Не делаем ничего
+      if(chat.type === 'private') {
+         console.log(message.from, 'Пользователь подключился к боту')
+         return
       }
-   }
 
-   async leaveChannel(ctx, chatId, chatType) {
-      try {
-         if(chatType !== 'private') {
-            await ctx.leaveChat(chatId)
+      if(chat.type === 'channel') {
+         console.log('STATUS', status)
+         if(status === 'administrator') {
+            const existChannel = await this.ticketService.getChannelId()
+            if(existChannel) {
+               await ctx.leaveChat(chat.id)
+            } else {
+               await this.ticketService.addChannel(chat.id, chat.type)
+            }
          }
-      } catch (error) {
-         console.log(error, 'нельзя покинуть группу')
+         if(status === 'kicked') {
+            await this.ticketService.deleteChannel(chat.id)
+         }
+         return
+      }
+
+      if(chat.type === 'supergroup') {
+         if(status === 'member') {
+            const existGroup = await this.ticketService.getGroupId()
+            if(existGroup) {
+               await ctx.leaveChat(chat.id)
+            } else {
+               await this.ticketService.addChannel(chat.id, chat.type)
+            }
+         }
+         if(status === 'left') {
+            await this.ticketService.deleteChannel(chat.id)
+         }
+         return
+      }
+
+      if(chat.type === 'group') {
+         await ctx.leaveChat(chat.id)
+         return
       }
    }
 

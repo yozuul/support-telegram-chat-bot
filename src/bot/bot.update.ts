@@ -25,8 +25,9 @@ export class BotUpdate {
    // При добавлении / удалении бота в канал или группу
    @On('my_chat_member')
    async my_chat_member(@Ctx() ctx: Context) {
-      console.log(ctx.update['my_chat_member'])
-      this.botService.checkChannelStatus(ctx, this.bot)
+      console.log('my_chat_member', ctx.update['my_chat_member'])
+      await this.botService.checkChannelStatus(ctx, this.bot)
+      return
    }
 
    @Hears('📝 Справочные материалы')
@@ -40,11 +41,11 @@ export class BotUpdate {
    @Hears('💬 Написать в поддержку')
    async support(ctx: Context) {
       ctx.session.path = 'tickets';
-      if((ctx.session.ticketStatus === 'waitQuestion') || !ctx.session.ticketStatus) {
+      if(!ctx.session.ticketStatus) ctx.session.ticketStatus = 'waitQuestion'
+      if(ctx.session.ticketStatus === 'waitQuestion') {
          await this.leaveChatKeyboard(ctx, '💬')
          const text = `Задайте свой вопрос.\nВам ответит первый освободившийся оператор.`
          await this.leaveChatKeyboard(ctx, text)
-         ctx.session.ticketStatus = 'waitQuestion'
       }
       if(ctx.session.ticketStatus === 'create') {
          const text = 'Чат службы поддержки.'
@@ -64,33 +65,38 @@ export class BotUpdate {
       const message = ctx.update['message']
       // Если ответили в комментах (оператор), или написали боту
       if(message.message_thread_id) {
-         await this.threadMessage(ctx, message, text)
+         await this.threadMessage(ctx, message)
       } else {
-         await this.botMessage(ctx, message, text)
+         await this.botMessage(ctx, message)
       }
    }
 
-   async threadMessage(ctx, message, text) {
-      // console.log('threadMessage MESSAGE', message)
-      // console.log('threadMessage text', text)
+   async threadMessage(ctx, message) {
+      console.log('threadMessage MESSAGE', message)
+      console.log('threadMessage text', message.text)
       console.log('сообщение в комментах')
       const threadId = message.message_thread_id
       const ticketExist = await this.ticketService.findByThreadId(threadId)
-      if(ticketExist && !ticketExist.closed && ticketExist.ticketChatId === threadId.toString()) {
-         console.log(ticketExist.senderId)
+      if(ticketExist && !ticketExist.closed && ticketExist.threadId === threadId.toString()) {
          await this.sendMessage(ticketExist.senderId, message, false)
       }
    }
 
-   async botMessage(ctx, message, text) {
+   async botMessage(ctx, message) {
+      // Уведомления о добавлении или удалении бота в группу
+      if(message.new_chat_participant || message.left_chat_participant) return
       console.log('botMessage MESSAGE', message)
-      console.log('botMessage text', text)
+      console.log('botMessage text', message.text)
       console.log('сообщение боту')
+      // Перехватываем ID ветки с тиккетом, и обновляем данные в БД
       if(message.sender_chat?.type === 'channel') {
-         if(message.forward_from?.id) {
-            await this.ticketService.updateTicketData(message.forward_from?.id, message.message_id)
-         }
+         await this.linkChannelPostToGroup(message)
+         return
       }
+      // Если пишут в ленту группы, игнорируем
+      if(message.from.is_bot) return
+      // Если пишут боту
+      if(!ctx.session.path) ctx.session.path = 'home'
       if(ctx.session.path === 'home') {
          await this.defaultMenuKeyboard(ctx);
       }
@@ -100,15 +106,18 @@ export class BotUpdate {
       }
 
       if(ctx.session.path === 'tickets') {
+         // Если открытого тиккета нет, создаём
          const openTicket = await this.botService.checkOpenedTicket(message, this.bot)
          if(openTicket) {
             const { chatId } = await this.ticketService.getGroupId()
             try {
-               await this.sendMessage(chatId, message, openTicket.ticketChatId)
+               // Пробуем дополнить открытый тиккет
+               await this.sendMessage(chatId, message, openTicket.threadId)
             } catch (error) {
                if(error.message === 'reply_not_found') {
-                  await this.ticketService.deleteByThread(openTicket.ticketChatId)
-                  this.botMessage(ctx, message, text)
+                  // Если тиккет в базе есть, а пост с канала был удалён, удаляем запись из бд и проверяем заново, чтобы пересоздать
+                  await this.ticketService.deleteByThread(openTicket.threadId)
+                  this.botMessage(ctx, message)
                }
             }
          }
@@ -116,6 +125,33 @@ export class BotUpdate {
             const text = 'Подключаем оператора к чату. Пожалуйста, дождитесь ответа'
             await this.leaveChatKeyboard(ctx, text)
             ctx.session.ticketStatus = 'create'
+         }
+      }
+   }
+
+   async linkChannelPostToGroup(message) {
+      console.log('linkChannelPostToGroup', message)
+      if(message.forward_from?.id) {
+         console.log('Это обычный пользователь')
+         const ticket = await this.ticketService.linkThreadByUserId(
+            message.forward_from.id, message.message_id
+         )
+         consoleResult(ticket)
+      } else {
+         console.log('Это скрытый пользователь')
+         let postType = 'text'
+         if(message.document) postType = 'doc'
+         const ticket = await this.ticketService.linkThreadByPostText(
+            postType, message.text || null, message.caption || null, message.forward_sender_name, message.message_id,
+         )
+         consoleResult(ticket)
+      }
+
+      function consoleResult(ticket) {
+         if(ticket) {
+            console.log('thread linked')
+         } else {
+            console.log('thread NOT found')
          }
       }
    }

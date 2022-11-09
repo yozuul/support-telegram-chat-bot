@@ -1,11 +1,15 @@
 import { BelongsToMany, Column, DataType, ForeignKey, Model, Table } from "sequelize-typescript";
 import { Channel } from './channel.model';
 
-const { BIGINT, INTEGER, STRING, BOOLEAN } = DataType
+const { BIGINT, INTEGER, STRING, BOOLEAN, TEXT } = DataType
 
 interface TicketCreationAttrs {
-   ticketChatId: bigint
+   threadId: bigint
    senderId: bigint
+   userFirstName: string
+   userLastName: string
+   startedText: string
+   startedPostType: string
    status: string
 }
 
@@ -22,7 +26,27 @@ export class Ticket extends Model<Ticket, TicketCreationAttrs> {
 
    @Column({
       type: BIGINT, unique: true, allowNull: true
-   }) ticketChatId: bigint
+   }) threadId: bigint
+
+   @Column({
+      type: STRING, allowNull: true
+   }) userFirstName: string
+
+   @Column({
+      type: STRING, allowNull: true
+   }) userLastName: string
+
+   @Column({
+      type: TEXT, allowNull: true
+   }) startedText: string
+
+   @Column({
+      type: STRING, defaultValue: 'text'
+   }) startedPostType: string
+
+   @Column({
+      type: STRING, defaultValue: 'text'
+   }) startedCaption: string
 
    @Column({
       type: STRING, defaultValue: 'open'
